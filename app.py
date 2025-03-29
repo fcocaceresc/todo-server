@@ -74,5 +74,13 @@ def update_task(task_id):
     return jsonify({'message': 'Task updated successfully'}), 200
 
 
+@app.route('/todos/<int:task_id>', methods=['DELETE'])
+def delete_task(task_id):
+    task = db.get_or_404(Task, task_id)
+    db.session.delete(task)
+    db.session.commit()
+    return jsonify({'message': 'Task deleted successfully'}), 200
+
+
 if __name__ == '__main__':
     app.run()
