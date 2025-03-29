@@ -65,5 +65,14 @@ def create_task():
     return jsonify({'message': 'Task created successfully'}), 200
 
 
+@app.route('/todos/<int:task_id>', methods=['PUT'])
+def update_task(task_id):
+    task = db.get_or_404(Task, task_id)
+    new_task_data = request.json
+    task.name = new_task_data['name']
+    db.session.commit()
+    return jsonify({'message': 'Task updated successfully'}), 200
+
+
 if __name__ == '__main__':
     app.run()
