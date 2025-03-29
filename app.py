@@ -17,6 +17,12 @@ class Task(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
 
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name
+        }
+
 
 load_dotenv()
 DB_USER = os.getenv('DB_USER')
@@ -37,6 +43,16 @@ with app.app_context():
 @app.route('/status', methods=['GET'])
 def status():
     return jsonify({'message': 'ok'}), 200
+
+
+@app.route('/todos', methods=['GET'])
+def get_tasks():
+    task_objects = db.session.execute(db.select(Task)).scalars()
+    tasks = [task.to_dict() for task in task_objects]
+    return jsonify({
+        'message': 'Tasks retrieved successfully',
+        'tasks': tasks
+    }), 200
 
 
 @app.route('/todos', methods=['POST'])
