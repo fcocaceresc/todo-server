@@ -40,6 +40,14 @@ with app.app_context():
     db.create_all()
 
 
+def validate_task_name(data):
+    if 'name' not in data:
+        return jsonify({'error': 'Task name is required'}), 400
+    if not data['name'] or not data['name'].strip():
+        return jsonify({'error': 'Task name must not be empty'}), 400
+    return None
+
+
 @app.route('/status', methods=['GET'])
 def status():
     return jsonify({'message': 'ok'}), 200
@@ -58,6 +66,11 @@ def get_tasks():
 @app.route('/todos', methods=['POST'])
 def create_task():
     new_task_data = request.json
+
+    name_error = validate_task_name(new_task_data)
+    if name_error:
+        return name_error
+
     task = Task(name=new_task_data['name'])
     db.session.add(task)
     db.session.commit()
@@ -67,13 +80,25 @@ def create_task():
     }), 201
 
 
-@app.route('/todos/<int:task_id>', methods=['PUT'])
+@app.route('/todos/<task_id>', methods=['PUT'])
 def update_task(task_id):
-    task = db.get_or_404(Task, task_id)
-    old_task = task.to_dict()
+    if not task_id.isdigit():
+        return jsonify({'error': 'Invalid task id'})
+
     updated_task_data = request.json
+
+    name_error = validate_task_name(updated_task_data)
+    if name_error:
+        return name_error
+
+    task = db.session.get(Task, task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+
+    old_task = task.to_dict()
     task.name = updated_task_data['name']
     db.session.commit()
+
     return jsonify({
         'message': 'Task updated successfully',
         'old_task': old_task,
@@ -83,7 +108,10 @@ def update_task(task_id):
 
 @app.route('/todos/<int:task_id>', methods=['DELETE'])
 def delete_task(task_id):
-    task = db.get_or_404(Task, task_id)
+    task = db.session.get(Task, task_id)
+    if not task:
+        return jsonify({'error': 'Task not found'}), 404
+
     db.session.delete(task)
     db.session.commit()
     return jsonify({
