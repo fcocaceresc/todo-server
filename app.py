@@ -57,21 +57,28 @@ def get_tasks():
 
 @app.route('/todos', methods=['POST'])
 def create_task():
-    task_data = request.json
-    name = task_data['name']
-    task = Task(name=name)
+    new_task_data = request.json
+    task = Task(name=new_task_data['name'])
     db.session.add(task)
     db.session.commit()
-    return jsonify({'message': 'Task created successfully'}), 200
+    return jsonify({
+        'message': 'Task created successfully',
+        'created_task': task.to_dict()
+    }), 201
 
 
 @app.route('/todos/<int:task_id>', methods=['PUT'])
 def update_task(task_id):
     task = db.get_or_404(Task, task_id)
-    new_task_data = request.json
-    task.name = new_task_data['name']
+    old_task = task.to_dict()
+    updated_task_data = request.json
+    task.name = updated_task_data['name']
     db.session.commit()
-    return jsonify({'message': 'Task updated successfully'}), 200
+    return jsonify({
+        'message': 'Task updated successfully',
+        'old_task': old_task,
+        'updated_task': task.to_dict()
+    }), 200
 
 
 @app.route('/todos/<int:task_id>', methods=['DELETE'])
@@ -79,7 +86,10 @@ def delete_task(task_id):
     task = db.get_or_404(Task, task_id)
     db.session.delete(task)
     db.session.commit()
-    return jsonify({'message': 'Task deleted successfully'}), 200
+    return jsonify({
+        'message': 'Task deleted successfully',
+        'deleted_task': task.to_dict()
+    }), 200
 
 
 if __name__ == '__main__':
