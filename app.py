@@ -1,5 +1,6 @@
 import os
 
+import bcrypt
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
@@ -52,6 +53,18 @@ with app.app_context():
     db.create_all()
 
 
+def validate_user_data(data):
+    if 'username' not in data:
+        return jsonify({'error': 'Username is required'}), 400
+    if 'password' not in data:
+        return jsonify({'error': 'Password is required'}), 400
+    if not data['username'] or not data['username'].strip():
+        return jsonify({'error': 'Username must not be empty'}), 400
+    if not data['password'] or not data['password'].strip():
+        return jsonify({'error': 'Password must not be empty'}), 400
+    return None
+
+
 def validate_task_name(data):
     if 'name' not in data:
         return jsonify({'error': 'Task name is required'}), 400
@@ -63,6 +76,33 @@ def validate_task_name(data):
 @app.route('/status', methods=['GET'])
 def status():
     return jsonify({'message': 'ok'}), 200
+
+
+@app.route('/register', methods=['POST'])
+def register():
+    new_user_data = request.json
+
+    validation_error = validate_user_data(new_user_data)
+    if validation_error:
+        return validation_error
+
+    existing_user = db.session.execute(
+        db.select(User).where(User.username == new_user_data['username'])).scalar_one_or_none()
+    if existing_user:
+        return jsonify({'error': 'User already exists'}), 409
+
+    password_bytes = new_user_data['password'].encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed_password = bcrypt.hashpw(password_bytes, salt)
+
+    new_user = User(
+        username=new_user_data['username'],
+        password=hashed_password.decode('utf-8')
+    )
+    db.session.add(new_user)
+    db.session.commit()
+
+    return jsonify({'message': 'User registered successfully'}), 201
 
 
 @app.route('/todos', methods=['GET'])
