@@ -1,10 +1,13 @@
 import os
+from datetime import datetime, timezone, timedelta
+from functools import wraps
 
 import bcrypt
+import jwt
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import String, ForeignKey
+from sqlalchemy import String, ForeignKey, select, and_
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -38,11 +41,16 @@ class Task(Base):
 
 
 load_dotenv()
+
 DB_USER = os.getenv('DB_USER')
 DB_PASSWORD = os.getenv('DB_PASSWORD')
 DB_HOST = os.getenv('DB_HOST')
 DB_PORT = os.getenv('DB_PORT')
 DB_NAME = os.getenv('DB_NAME')
+
+SECRET_KEY = os.getenv('SECRET_KEY')
+JWT_ALGORITHM = 'HS256'
+TOKEN_EXPIRE_HOURS = 24
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = f'mysql+mysqldb://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}'
@@ -71,6 +79,29 @@ def validate_task_name(data):
     if not data['name'] or not data['name'].strip():
         return jsonify({'error': 'Task name must not be empty'}), 400
     return None
+
+
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'Authorization' in request.headers:
+            token = request.headers['Authorization'].split()[1]
+
+        if not token:
+            return jsonify({'error': 'Token missing'}), 401
+
+        try:
+            data = jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
+            current_user = db.session.get(User, data['user_id'])
+            if not current_user:
+                raise ValueError("User not found")
+        except Exception as e:
+            return jsonify({'error': 'Invalid token'}), 401
+
+        return f(current_user, *args, **kwargs)
+
+    return decorated
 
 
 @app.route('/status', methods=['GET'])
@@ -122,14 +153,19 @@ def login():
     if not user or not bcrypt.checkpw(password_bytes, hashed_password_bytes):
         return jsonify({'error': 'Invalid username or password'}), 401
 
-    return jsonify({
-        'message': 'Logged in successfully'
-    }), 200
+    token = jwt.encode({
+        'user_id': user.id,
+        'exp': datetime.now(tz=timezone.utc) + timedelta(hours=TOKEN_EXPIRE_HOURS)
+    },
+        SECRET_KEY,
+        algorithm=JWT_ALGORITHM)
+    return jsonify({'token': token}), 200
 
 
 @app.route('/todos', methods=['GET'])
-def get_tasks():
-    task_objects = db.session.execute(db.select(Task)).scalars()
+@token_required
+def get_tasks(current_user):
+    task_objects = db.session.execute(db.select(Task).where(Task.user_id == current_user.id)).scalars().all()
     tasks = [task.to_dict() for task in task_objects]
     return jsonify({
         'message': 'Tasks retrieved successfully',
@@ -138,14 +174,15 @@ def get_tasks():
 
 
 @app.route('/todos', methods=['POST'])
-def create_task():
+@token_required
+def create_task(current_user):
     new_task_data = request.json
 
     name_error = validate_task_name(new_task_data)
     if name_error:
         return name_error
 
-    task = Task(name=new_task_data['name'])
+    task = Task(name=new_task_data['name'], user_id=current_user.id)
     db.session.add(task)
     db.session.commit()
     return jsonify({
@@ -155,7 +192,8 @@ def create_task():
 
 
 @app.route('/todos/<task_id>', methods=['PUT'])
-def update_task(task_id):
+@token_required
+def update_task(current_user, task_id):
     if not task_id.isdigit():
         return jsonify({'error': 'Invalid task id'})
 
@@ -165,7 +203,8 @@ def update_task(task_id):
     if name_error:
         return name_error
 
-    task = db.session.get(Task, task_id)
+    task = db.session.execute(
+        select(Task).where(and_(Task.id == task_id, Task.user_id == current_user.id))).scalar_one_or_none()
     if not task:
         return jsonify({'error': 'Task not found'}), 404
 
@@ -181,8 +220,10 @@ def update_task(task_id):
 
 
 @app.route('/todos/<int:task_id>', methods=['DELETE'])
-def delete_task(task_id):
-    task = db.session.get(Task, task_id)
+@token_required
+def delete_task(current_user, task_id):
+    task = db.session.execute(
+        select(Task).where(and_(Task.id == task_id, Task.user_id == current_user.id))).scalar_one_or_none()
     if not task:
         return jsonify({'error': 'Task not found'}), 404
 
