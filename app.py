@@ -105,6 +105,28 @@ def register():
     return jsonify({'message': 'User registered successfully'}), 201
 
 
+@app.route('/login', methods=['POST'])
+def login():
+    login_data = request.json
+
+    if (not login_data) or ('username' not in login_data) or ('password' not in login_data):
+        return jsonify({'error': 'Username and password required'}), 400
+
+    user = db.session.execute(
+        db.select(User).where(User.username == login_data['username'])
+    ).scalar_one_or_none()
+
+    password_bytes = login_data['password'].encode('utf-8')
+    hashed_password_bytes = user.password.encode('utf-8')
+
+    if not user or not bcrypt.checkpw(password_bytes, hashed_password_bytes):
+        return jsonify({'error': 'Invalid username or password'}), 401
+
+    return jsonify({
+        'message': 'Logged in successfully'
+    }), 200
+
+
 @app.route('/todos', methods=['GET'])
 def get_tasks():
     task_objects = db.session.execute(db.select(Task)).scalars()
